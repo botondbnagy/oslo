@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 import os
 import sys
 import scipy
+
+datafolder = os.path.dirname(os.path.realpath(__file__)) + '/data/run0/'
 # load data
 Ls = [4, 8, 16, 32, 64, 128, 256]
 
@@ -13,7 +15,6 @@ Ls = Ls[::-1] #invert for plotting
 colors = plt.cm.viridis(np.linspace(0, 1, len(Ls)*2))[::2]
 plt.rc('axes', prop_cycle=(plt.cycler('color', colors))) #change default color cycle
 
-datafolder = 'data/'
 
 #read in all avalanches and heights from all L and plot them
 def plotAllAvalanches():
@@ -50,4 +51,39 @@ def plotAllHeights():
     plt.show()
 
 
-plotAllHeights()
+def plot_t_cs():
+    # plot t_c vs L
+    plt.figure(figsize=(10, 7))
+    avg_t_cs = np.zeros(len(Ls))
+    errs = np.zeros(len(Ls))
+    for i, L in enumerate(Ls):
+        folder = datafolder+str(L)+'/'
+        t_cs = np.loadtxt(folder + 't_c.csv', delimiter=',')
+        avg_t_cs[i] = np.mean(t_cs)
+        errs[i] = np.std(t_cs)
+
+    #fit quadratic to points
+    def func(x, a):
+        x = np.array(x)
+        return a * x**2
+
+    popt, pcov = scipy.optimize.curve_fit(func, Ls, avg_t_cs, sigma=errs)
+
+    Xs = np.linspace(0, np.max(Ls), 100)
+    plt.plot(Xs, func((Xs), *popt), color='gray', label='quadratic fit')
+    print('fit parameters: ', popt)
+
+    plt.errorbar(Ls, avg_t_cs, yerr=errs, fmt='o', color='k')
+    
+    #plt.xscale('log')
+    #plt.yscale('log')
+    plt.xticks(np.arange(0, np.max(Ls)+1, 32))
+    plt.xlabel('System size L')
+    plt.ylabel('Average crossover time')
+    plt.title('Crossover time and system size')
+    plt.legend()
+    plt.grid()    
+    plt.savefig(datafolder+'t_c.png', dpi=300)
+    plt.show()
+
+plot_t_cs()

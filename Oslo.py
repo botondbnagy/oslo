@@ -8,14 +8,15 @@ import matplotlib.pyplot as plt
 import os
 import sys
 import time
-
+from tqdm import tqdm
 
 
 p = 0.5
-Ls = np.zeros(5, dtype=int) + 16 #[4, 8, 16, 32, 64, 128, 256]
+Ls = np.zeros(8, dtype=int) + 4 #[4, 8, 16, 32, 64, 128, 256]
 i_after_ss = 10**3 # number of iterations after steady state
 thresholds = np.array([1, 2])
-
+timestamp = time.strftime("%m-%d-%H-%M-%S")
+dir = os.path.dirname(os.path.realpath(__file__)) + '/data/run' + timestamp + '/'
 
 
 def randomThresholds(p, L):
@@ -150,6 +151,7 @@ def checkRecurrence(config, z_th):
 def run(p, L, iterations, thresholds, manual=True, animation=True, saving=True):
 
     print('Running system size: ' + str(L))
+
     # initialize configuration, threshold slopes and animation
     config, z_th = initialize(p, L, thresholds)
     t_c_switch = False
@@ -158,15 +160,16 @@ def run(p, L, iterations, thresholds, manual=True, animation=True, saving=True):
     avalanches, heights = np.zeros(iterations), np.zeros(iterations)
     
     animate.initialized = False
+
     if animation:
         animate(config, z_th, 0)
         print('Animation running. Click "Drive" to drive the model.')
 
     # drive the model for a number of iterations
-    for t in range(iterations):
-        #if manual=true wait until 'drive' button is clicked, drive and relax the model
+    for t in tqdm(range(iterations)):
 
         if animation:
+            #if manual=true wait until 'drive' button is clicked, drive and relax the model
             if manual:
                 while not animate.axdrive.button_pressed:
                     plt.pause(0.1)
@@ -183,7 +186,7 @@ def run(p, L, iterations, thresholds, manual=True, animation=True, saving=True):
             config, z_th, s = relax(config, z_th, L) # s is avalanche size
 
         #check if a grain has left the system
-        if np.sum(config) == t and not t_c_switch:
+        if np.sum(config) <= t and t_c_switch == False:
             t_c = t-1
             t_c_switch = True
             print('Grain left system at iteration ' + str(t_c))
@@ -195,45 +198,42 @@ def run(p, L, iterations, thresholds, manual=True, animation=True, saving=True):
     #print('Average height of pile after steady state: ' + str(np.mean(heights[steady_state:])))
 
     if saving:
-        to_save = [avalanches, heights]
+        to_save = {'avalanches': avalanches, 'heights': heights}
         #save avalanche sizes and heights as csv files in a folder named after data/L
-        foldername = 'data/' + str(L)
+        foldername = dir + str(L)
         if not os.path.exists(foldername):
             os.makedirs(foldername)
         for file in to_save:
-            np.savetxt(foldername + '/'+str(file)+'.csv', file, delimiter=',')
-        
-        #add t_c to the end of t_cs.csv
-        with open(foldername + '/t_cs.csv', 'a') as f:
-            f.write(str(t_c) + '\n')
+            np.savetxt(foldername + '/' + str(file) + '.csv', to_save[file], delimiter=',')
 
-        print('Saved in data/' + str(L))
-    if t_c_switch == False:
-        print(config)
-        print(np.sum(config))
-    return config, avalanches, heights
+    
+
+    return config, avalanches, heights, t_c
 
 
 #final_config, avalanches, heights = run(p, L, iterations, thresholds, manual=False, animation=False, saving=True)
 
 #run the model for L=4, 8, 16, 32, 64, 128, 256...
-for L in Ls:
+t_cs = np.zeros(len(Ls))
+for i, L in enumerate(Ls):
     #start timer
     start_time = time.time()
     steady_state = 2*L**2
     iterations = steady_state + i_after_ss
-    #create a file to save t_c in
-    foldername = 'data/' + str(L) + '/'
-    if not os.path.exists(foldername):
-        os.makedirs(foldername)
-    with open(foldername + 't_cs.csv', 'w') as f:
-        f.write('')
     
+    
+    final_config, avalanches, heights, t_c = run(p, L, iterations, thresholds, manual=False, animation=False, saving=True)
 
-    final_config, avalanches, heights = run(p, L, iterations, thresholds, manual=False, animation=False, saving=False)
+    t_cs[i] = t_c
 
-    #print iterations per second
-    #print('Iterations per second: ' + str(iterations/(time.time() - start_time)))
+
+#save t_cs as csv file
+np.savetxt(dir+str(Ls[0])+'/t_c.csv', t_cs, delimiter=',')
+
+
+
+#print iterations per second
+#print('Iterations per second: ' + str(iterations/(time.time() - start_time)))
 
 
 
