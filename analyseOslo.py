@@ -40,7 +40,6 @@ def plotAllHeights():
         #log scale
         plt.plot(np.arange(len(heights)), heights, label='L=' + str(L), alpha=0.8, linewidth=0.8)
         
-
     plt.yscale('log')
     plt.xscale('log')
     plt.xlabel('Time')
@@ -49,7 +48,6 @@ def plotAllHeights():
     plt.legend()
     plt.savefig(datafolder+'heights.png', dpi=300)
     plt.show()
-
 
 def plot_t_cs():
     # plot t_c vs L
@@ -86,4 +84,3 @@ def plot_t_cs():
     plt.savefig(datafolder+'t_c.png', dpi=300)
     plt.show()
 
-plot_t_cs()

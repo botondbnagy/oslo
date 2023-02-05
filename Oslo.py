@@ -5,235 +5,180 @@
 import random
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.animation as animation
 import os
 import sys
 import time
 from tqdm import tqdm
 
 
-p = 0.5
-Ls = np.zeros(8, dtype=int) + 4 #[4, 8, 16, 32, 64, 128, 256]
-i_after_ss = 10**3 # number of iterations after steady state
-thresholds = np.array([1, 2])
-timestamp = time.strftime("%m-%d-%H-%M-%S")
-dir = os.path.dirname(os.path.realpath(__file__)) + '/data/run' + timestamp + '/'
+class Oslo:
+    def __init__(self, L, p=0.5, i_after_ss=10**3, thresholds=[1, 2], doAnimation=False, repeatN=5):
+        self.L = L
+        self.p = p
+        self.i_after_ss = i_after_ss
+        self.steady_state = 2*L**2
+        self.iterations = self.steady_state + i_after_ss
+        self.config = np.zeros(L, dtype=int)
+        self.thresholds = np.array(thresholds)
+        self.z_th = self.randomThresholds()
+        self.avalanches = np.zeros(self.iterations)
+        self.heights = np.zeros(self.iterations)
+        self.doAnimation = doAnimation
+        self.t_c = 0
+        self.t_c_reached = False
+        self.repeatN = repeatN
+        self.t_c_list = np.zeros(self.repeatN)
+        self.dir = os.path.dirname(os.path.realpath(__file__)) + '/data/' + str(self.L) + '/' #data directory named after L
 
 
-def randomThresholds(p, L):
-    # create list of random threshold slopes from threshold_slopes with probability p
-    z_th = np.random.choice(thresholds, size=L, p=[p, 1-p])
+    def randomThresholds(self):
+        # create list of random threshold slopes from threshold_slopes with probability p
+        z_th = np.random.choice(self.thresholds, size=self.L, p=[self.p, 1-self.p])
 
-    return z_th
-
-def initialize(p, L, thresholds):
-    # initialize with empty configuration
-    config = np.zeros(L, dtype=int)
-
-    # create list of random initial threshold slopes
-    z_th = randomThresholds(p, L)
-
-    return config, z_th
-
-
-def getSlopes(config, i_max):
-    # calculate local slopes in configuration
-    slopes = config[:i_max+1] - np.concatenate((config[1:], [0]))[:i_max+1]
-    return slopes
-
-def drive(config, z_th):
-    # add one grain to the first cell
-    config[0] += 1
-
-    return config
-
-def relax(config, z_th, L):
-    avalanche_size = 0
-    i_max = 1 # index of last cell to be checked for relaxation
-
-    # relax the configuration while there are cells with slope greater than local threshold slope
-    while np.any(getSlopes(config, i_max) > z_th[:i_max+1]):
-
-        slopes = getSlopes(config, i_max)
-        to_relax = np.where(slopes > z_th[:i_max+1])[0] # to_relax is array of cells that need to be relaxed, ie. cells with slope greater than local threshold slope
-        config[to_relax] -= 1
-        z_th[to_relax] = randomThresholds(p, L)[to_relax] # reset threshold slope of relaxed cells
-
-        # if cell is not last cell, add grain to cell to the right, otherwise don't add grain
-        addto = to_relax[to_relax < L-1] + 1
-        config[addto] += 1
-
-
-        # count avalanche size
-        avalanche_size += len(to_relax)
-
-        # increase i_max unless it is already at the end of the array
-        i_max = to_relax[-1] + 1
-
-
-
-    return config, z_th, avalanche_size
-
-def animate(config, z_th, i, s=0):
-    # animation of the model with squares representing the cells
-    # if called for first time, initialize animation
+        return z_th
     
-    if not animate.initialized:
-        # initialize figure and axes with drive button
-        # button_pressed is 1 if button is clicked
-        # horizontal axis shows z_th for each cell in centre of cell
-        # vertical axis shows height of each cell
-        animate.fig, animate.ax = plt.subplots()
-        animate.axdrive = animate.fig.add_axes([0.05, 0.8, 0.1, 0.1])
-        animate.axdrive.button_pressed = 0
-        animate.axdrive.button = plt.Button(animate.axdrive, 'Drive')
-        animate.axdrive.button.on_clicked(lambda event: setattr(animate.axdrive, 'button_pressed', 1))
-        # add quit button that terminates the program
-        animate.axquit = animate.fig.add_axes([0.05, 0.7, 0.1, 0.1])
-        animate.axquit.button = plt.Button(animate.axquit, 'Quit')
-        animate.axquit.button.on_clicked(lambda event: plt.close(animate.fig))
-        animate.fig.canvas.mpl_connect('close_event', lambda event: quit())
+    def initialize(self):
+        # initialize with empty configuration
+        self.config = np.zeros(self.L, dtype=int)
 
-        # add iteration counter
-        animate.axiter = animate.fig.add_axes([0.05, 0.6, 0.1, 0.1])
-        animate.axiter.text(0.5, 0.5, 'Iteration: 0', horizontalalignment='center', verticalalignment='center')
-        animate.axiter.axis('off')
+        # create list of random initial threshold slopes
+        self.z_th = self.randomThresholds()
 
-        # add avalanche size counter
-        animate.axsize = animate.fig.add_axes([0.05, 0.5, 0.1, 0.1])
-        animate.axsize.text(0.5, 0.5, 'Last avalanche size: 0', horizontalalignment='center', verticalalignment='center')
-        animate.axsize.axis('off')
+        if self.doAnimation:
+            # initialize animation
+            self.fig, self.ax = plt.subplots()
+            self.ax.set_xlim(0, self.L)
+            self.ax.set_ylim(0, self.L*2+2)
+            self.ax.set_xlabel('Cell')
+            self.ax.set_ylabel('Height')
+            self.ax.set_title('Oslo model')
+            self.ax.grid()
+            self.ax.set_xticks(np.arange(0, self.L+1, 1))
+            self.ax.set_yticks(np.arange(0, self.L*2+2, 1))
+            self.edges = np.arange(self.L+1)
+            self.ax.stairs(self.config, self.edges, color='black')
+            self.fig.canvas.draw()
+            self.fig.canvas.flush_events()
+            plt.pause(0.01)
 
-        # set axes labels and ticks
-        animate.ax.set_xlabel('z_th')
-        animate.ax.set_ylabel('height')
-        animate.ax.set_xticks(np.arange(L))
-        # xticks are in centre of each cell
-        uplim = 2*L
-        animate.ax.set_xticklabels(np.arange(L) + 0.5)
-        animate.ax.set_xticklabels(z_th)
-        animate.ax.set_yticks(np.arange(uplim))
-        animate.ax.set_ylim(0, uplim)
-        animate.ax.set_xlim(0, L)
-        animate.ax.set_aspect('equal')
-        animate.ax.grid(True)
-        
-        # initialize bars
-        animate.rects = animate.ax.bar(np.arange(L), config, width=1, align='edge', color='black')
-        animate.initialized = True
+    def getSlopes(self, i_max):
+        # calculate local slopes in configuration
+        slopes = self.config[:i_max+1] - np.concatenate((self.config[1:], [0]))[:i_max+1]
+        return slopes
+
+    def drive(self):
+        # add one grain to the first cell
+        self.config[0] += 1
+
+    def relax(self, i):
+        avalanche_size = 0
+        i_max = 1 # index of last cell to be checked for relaxation
+
+        # relax the configuration while there are cells with slope greater than local threshold slope
+        while np.any(self.getSlopes(i_max) > self.z_th[:i_max+1]):
+            slopes = self.getSlopes(i_max)
+            to_relax = np.where(slopes > self.z_th[:i_max+1])[0] # to_relax is array of cells that need to be relaxed, ie. cells with slope greater than local threshold slope
+            self.config[to_relax] -= 1
+            self.z_th[to_relax] = self.randomThresholds()[to_relax] # reset threshold slope of relaxed cells
+
+            # if cell is not last cell, add grain to cell to the right, otherwise don't add grain
+            
+            to_add = to_relax + 1
+
+            if to_add[-1] < self.L:
+                self.config[to_add] += 1
+            
+            else:
+                if self.t_c_reached == False:
+                    self.t_c_reached = True
+                    #print('First grain left the system after {} iterations'.format(i))
+                    self.t_c = i #cross-over time
+                
+                self.config[to_add[:-1]] += 1 #add grain to to_add cells, except last
+
+            # count avalanche size
+            avalanche_size += len(to_relax)
+
+            # increase i_max unless it is already at the end of the array
+            i_max = to_relax[-1] + 1
+
+        self.avalanches[i] = avalanche_size
+        self.heights[i] = self.config[0] #height of first cell
+
+    def animate(self, i, s=0):
+        # update animation
+        self.ax.clear()
+        self.ax.set_xlim(0, self.L)
+        self.ax.set_ylim(0, self.L*2+2)
+        self.ax.set_xlabel('Cell')
+        self.ax.set_ylabel('Height')
+        self.ax.set_title('Oslo model')
+        #self.ax.grid()
+        #self.ax.set_xticks(np.arange(0, self.L+1, 1))
+        #self.ax.set_yticks(np.arange(0, self.L*2+2, 1))
+        self.ax.stairs(self.config, self.edges, color='black')
+        self.fig.canvas.draw()
+        self.fig.canvas.flush_events()
         plt.pause(0.0001)
 
-        return
 
-    # update the heights of the bars and the x axis labels
-    for rect, h in zip(animate.rects, config):
-        rect.set_height(h)
-    
-    animate.ax.set_xticklabels(z_th)
-    animate.axiter.clear()
-    animate.axiter.text(0.5, 0.5, 'Iteration: ' + str(i+1), horizontalalignment='center', verticalalignment='center')
-    animate.axiter.axis('off')
-    animate.axsize.clear()
-    animate.axsize.text(0.5, 0.5, 'Last avalanche size: ' + str(s), horizontalalignment='center', verticalalignment='center')
-    animate.axsize.axis('off')
+    def run(self, n):
+        #initialize configuration
+        self.initialize()
+
+        # run model
+        for i in tqdm(range(self.iterations), desc='Running model {}/{} with L = {}'.format(n+1, self.repeatN, self.L)): 
+            self.drive()
+
+            # if self.doAnimation:
+            #    self.animate(i)
+
+            self.relax(i)
+
+            if self.doAnimation:
+                self.animate(i)
+
+        #get steady state values
+        self.avalanches_ss = self.avalanches[self.t_c:]
+        self.heights_ss = self.heights[self.t_c:]
+        
+        if self.doAnimation:
+            self.anim = animation.FuncAnimation(self.fig, self.animate, frames=self.iterations, interval=1, repeat=False)
+            plt.show()
+            plt.close()
+
+    def save(self, run_id, dir='data/'):
+        # save data
+        if not os.path.exists(dir):
+            os.makedirs(dir)
+        
+        #save avalanche sizes (after steady state), heights for each iteration as csv
+        np.savetxt(dir + 'avalanches_'+str(run_id)+'.csv', self.avalanches_ss, delimiter=',')
+        np.savetxt(dir + 'heights_'+str(run_id)+'.csv', self.heights, delimiter=',')
+
+        if run_id == self.repeatN-1:
+            #after last run save list of t_c values as csv
+            np.savetxt(dir + 't_c.csv', self.t_c_list, delimiter=',')
+
+    def repeat(self, repeatN):
+        #repeat model run N times
+        for n in range(repeatN):
+            self.run(n)
+            self.t_c_list[n] = self.t_c
+            self.save(n, dir=self.dir)
+            self.t_c = 0
+            self.t_c_reached = False
 
 
-    # draw the animation
-    animate.fig.canvas.draw()
-    animate.fig.canvas.flush_events()
-    plt.pause(0.000001)
-
-    return
-
-def checkRecurrence(config, z_th):
-    # check if the model has reached a recurrence state
-    return False
-
-def run(p, L, iterations, thresholds, manual=True, animation=True, saving=True):
-
-    print('Running system size: ' + str(L))
-
-    # initialize configuration, threshold slopes and animation
-    config, z_th = initialize(p, L, thresholds)
-    t_c_switch = False
-
-    #observables
-    avalanches, heights = np.zeros(iterations), np.zeros(iterations)
-    
-    animate.initialized = False
-
-    if animation:
-        animate(config, z_th, 0)
-        print('Animation running. Click "Drive" to drive the model.')
-
-    # drive the model for a number of iterations
-    for t in tqdm(range(iterations)):
-
-        if animation:
-            #if manual=true wait until 'drive' button is clicked, drive and relax the model
-            if manual:
-                while not animate.axdrive.button_pressed:
-                    plt.pause(0.1)
-
-                animate.axdrive.button_pressed = 0
-
-            config = drive(config, z_th)
-            animate(config, z_th, t)
-            config, z_th, s = relax(config, z_th, L) # s is avalanche size
-            animate(config, z_th, t, s)
-
-        else:
-            config = drive(config, z_th)
-            config, z_th, s = relax(config, z_th, L) # s is avalanche size
-
-        #check if a grain has left the system
-        if np.sum(config) <= t and t_c_switch == False:
-            t_c = t-1
-            t_c_switch = True
-            print('Grain left system at iteration ' + str(t_c))
-            
-        avalanches[t] = s
-        heights[t] = config[0] #height of pile at drive t is height of first cell after relaxation
-
-    #print('Average avalanche size after steady state: ' + str(np.mean(avalanches[steady_state:])))
-    #print('Average height of pile after steady state: ' + str(np.mean(heights[steady_state:])))
-
-    if saving:
-        to_save = {'avalanches': avalanches, 'heights': heights}
-        #save avalanche sizes and heights as csv files in a folder named after data/L
-        foldername = dir + str(L)
-        if not os.path.exists(foldername):
-            os.makedirs(foldername)
-        for file in to_save:
-            np.savetxt(foldername + '/' + str(file) + '.csv', to_save[file], delimiter=',')
+if __name__ == '__main__':
+    # run model for system sizes L
+    L = [8, 16, 32, 64, 128, 256]
+    for l in L:
+        model = Oslo(L=l, i_after_ss=10**3, repeatN=1, doAnimation=False)
+        model.repeat(model.repeatN)
 
     
-
-    return config, avalanches, heights, t_c
-
-
-#final_config, avalanches, heights = run(p, L, iterations, thresholds, manual=False, animation=False, saving=True)
-
-#run the model for L=4, 8, 16, 32, 64, 128, 256...
-t_cs = np.zeros(len(Ls))
-for i, L in enumerate(Ls):
-    #start timer
-    start_time = time.time()
-    steady_state = 2*L**2
-    iterations = steady_state + i_after_ss
-    
-    
-    final_config, avalanches, heights, t_c = run(p, L, iterations, thresholds, manual=False, animation=False, saving=True)
-
-    t_cs[i] = t_c
-
-
-#save t_cs as csv file
-np.savetxt(dir+str(Ls[0])+'/t_c.csv', t_cs, delimiter=',')
-
-
-
-#print iterations per second
-#print('Iterations per second: ' + str(iterations/(time.time() - start_time)))
 
 
 
