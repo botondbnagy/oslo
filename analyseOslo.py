@@ -10,7 +10,7 @@ from tqdm import tqdm
 
 datafolder = os.path.dirname(os.path.realpath(__file__)) + '/data/'
 # load data
-Ls = [8, 16, 32, 64, 128, 256]
+Ls = [4, 8, 16, 32, 64, 128, 256]
 i_after_ss = 10**5
 repeatNs = np.zeros(len(Ls), dtype=int) + 10 #number of repeats for each L
 
@@ -37,7 +37,7 @@ class osloAnalysis:
         all_avalanches = np.zeros((repeats, i_after_ss))
         all_heights = np.zeros((repeats, iterations))
         
-        for run_id in tqdm(range(repeats)):
+        for run_id in range(repeats):
             folder = datafolder+str(L)+'/'
             #all_avalanches[run_id] = np.loadtxt(folder + 'avalanches_'+str(run_id)+'.csv', delimiter=',')[:i_after_ss]
             #all_heights[run_id] = np.loadtxt(folder + 'heights_'+str(run_id)+'.csv', delimiter=',')
@@ -46,9 +46,11 @@ class osloAnalysis:
             #convert to numpy array
             all_avalanches[run_id] = np.array(cur_aval).flatten()
             all_heights[run_id] = np.array(cur_height).flatten()
+        
+        t_c_list = pd.read_csv(folder + 't_c.csv', header=None, usecols=[0], dtype=int).values
+        t_c_list = np.array(t_c_list).flatten()
 
-
-        return all_avalanches, all_heights
+        return all_avalanches, all_heights, t_c_list
     
     def plotAllAvalanches(self, show=False):
         '''barplot avalanche sizes vs time'''
@@ -101,6 +103,12 @@ class osloAnalysis:
             x = np.array(x)
             return a * x**2
     
+    def scal(self, L, a_0, a_1, w_1):
+        return a_0 * L * (1 - a_1 * L ** (-w_1))
+    
+    def log(self, x, a, b):
+        return a * np.log(x) + b
+    
     def plot_t_cs(self, fit=True, show=False):
         # plot t_c vs L
         plt.figure(figsize=(10, 7))
@@ -120,7 +128,7 @@ class osloAnalysis:
             plt.plot(Xs, self.quad((Xs), *popt), color='gray', label='quadratic fit')
             print('fit parameters: ', popt)
 
-        plt.errorbar(self.Ls, avg_t_cs, yerr=errs, fmt='o', color='k')
+        plt.errorbar(self.Ls, avg_t_cs, yerr=errs, fmt='.', color='k', capsize=3)
         
         #plt.xscale('log')
         #plt.yscale('log')
@@ -152,14 +160,84 @@ class osloAnalysis:
         plt.ylabel('Height / L')
         plt.xlim(0, 5)
         #plt.title('Height of pile (average) over time for different L')
-
         plt.legend()
         plt.savefig(self.datafolder+'meanheights_collapsed'+scale+'.png', dpi=300)
         if show:
             plt.show()
 
+    def scalingCorrections(self, show=False, fit=True):
+        fig, ax = plt.subplots(1, 3, figsize=(15, 7))
+        avg_heights = np.zeros(len(self.Ls))
+        err_heights = np.zeros(len(self.Ls))
+
+        for l, L in enumerate(self.Ls):
+            avalanches, heights, t_cs = self.readData(L)
+            t_c = t_cs[0]
+            heights_ss = heights[0][t_c:]
+            
+            avg_heights[l] = np.mean(heights_ss)
+            err_heights[l] = np.std(heights_ss)
+            manual_std= np.sqrt(np.sum(heights_ss**2) / len(heights_ss) - avg_heights[l]**2)
+
+            print('L = {:.2f}, mean = {:.2f} +/- {:.2f} (manual std = {:.2f})'.format(L, avg_heights[l], err_heights[l], manual_std))
+
+            height_prob = np.bincount(heights_ss.astype(int))
+            height_prob = height_prob / np.sum(height_prob)
+
+            ax[0].plot(np.arange(len(height_prob)), height_prob, label='L='+str(L), alpha=0.8, linewidth=0.8)
+
+        if fit:
+            #divide by L
+            scaled_heights = avg_heights #/ self.Ls
+            scaled_err_heights = err_heights #/ self.Ls
+
+            #fit to scaling function
+            popt, pcov = scipy.optimize.curve_fit(self.scal, self.Ls, scaled_heights, sigma=scaled_err_heights)
+            Xs = np.linspace(0, np.max(self.Ls), 100)
+            ax[1].plot(Xs, self.scal((Xs), *popt), color='gray', label='scaling fit')
+            print('fit parameters: a_0={:.2f} +/- {:.2f}, a_1={:.2f} +/- {:.2f}, w_1={:.2f} +/- {:.2f}'.format(popt[0], np.sqrt(pcov[0,0]), popt[1], np.sqrt(pcov[1,1]), popt[2], np.sqrt(pcov[2,2])))
+
+            #fit log to std against L
+            popt, pcov = scipy.optimize.curve_fit(self.log, self.Ls, scaled_err_heights)
+            Xs = np.linspace(0, np.max(self.Ls), 100)
+            ax[2].plot(Xs, self.log((Xs), *popt), color='gray', label='log fit')
+            print('fit parameters: a={:.2f} +/- {:.2f}, b={:.2f} +/- {:.2f}'.format(popt[0], np.sqrt(pcov[0,0]), popt[1], np.sqrt(pcov[1,1])))
+        
+
+        #plot std against L
+        ax[2].scatter(self.Ls, scaled_err_heights, color='k', s=10)
+        ax[2].set_xlabel('System size L')
+        ax[2].set_ylabel('Standard deviation')
+        #ax[2].set_title('Standard deviation of height of pile over time for different L')
+        ax[2].grid()
+
+
+        ax[0].set_xlabel('Height')
+        ax[0].set_ylabel('Probability')
+        #ax[0].set_title('Probability distribution of heights')
+        ax[0].legend()
+
+        ax[1].errorbar(self.Ls, avg_heights, yerr=err_heights, fmt='.', color='k', capsize=3)
+        ax[1].set_xlabel('System size L')
+        ax[1].set_ylabel('Average height')
+        #ax[1].set_title('Average height of pile over time for different L')
+        ax[1].grid()
+        plt.savefig(self.datafolder+'scalingcorrections.png', dpi=300)
+
+
+        if show:
+            plt.show()
+
+        
+
+            
+
+
+
+
 analyser = osloAnalysis()
 #analyser.plotAllAvalanches(show=False)
 #analyser.plotMeanHeights(runs='one', show=True, scale='loglog')
 #analyser.plot_t_cs(fit=True, show=True)
-analyser.collapseHeights(show=True, scale='linear')
+#analyser.collapseHeights(show=True, scale='linear')
+analyser.scalingCorrections(show=True)
