@@ -31,7 +31,6 @@ class Oslo:
         self.t_c_list = np.zeros(self.repeatN)
         self.dir = os.path.dirname(os.path.realpath(__file__)) + '/data/' + str(self.L) + '/' #data directory named after L
 
-
     def randomThresholds(self):
         # create list of random threshold slopes from threshold_slopes with probability p
         z_th = np.random.choice(self.thresholds, size=self.L, p=[self.p, 1-self.p])
@@ -122,7 +121,6 @@ class Oslo:
         self.fig.canvas.flush_events()
         plt.pause(0.0001)
 
-
     def run(self, n):
         #initialize configuration
         self.initialize()
@@ -161,9 +159,9 @@ class Oslo:
             #after last run save list of t_c values as csv
             np.savetxt(dir + 't_c.csv', self.t_c_list, delimiter=',')
 
-    def repeat(self, repeatN):
+    def repeat(self):
         #repeat model run N times
-        for n in range(repeatN):
+        for n in range(self.repeatN):
             self.run(n)
             self.t_c_list[n] = self.t_c
             self.save(n, dir=self.dir)
@@ -173,10 +171,15 @@ class Oslo:
 
 if __name__ == '__main__':
     # run model for system sizes L
-    L = [8, 16, 32, 64, 128, 256]
+    start, stop = 2, 2 #eg for [8, 16, ... 256] use 3, 8
+    repeats = 10 #number of times to repeat model for each system size
+    i_after_ss = 10**5 #number of iterations after definite steady state
+    L = np.logspace(start, stop, stop-start+1, base=2, dtype=int)
+    print('Running model for system sizes: {}, each repeated {} times'.format(L, repeats))
     for l in L:
-        model = Oslo(L=l, i_after_ss=10**3, repeatN=1, doAnimation=False)
-        model.repeat(model.repeatN)
+        repeatN = repeats
+        model = Oslo(L=l, i_after_ss=i_after_ss, repeatN=repeatN, doAnimation=False)
+        model.repeat()
 
     
 
