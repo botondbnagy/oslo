@@ -7,12 +7,15 @@ import sys
 import scipy
 import pandas as pd
 from tqdm import tqdm
+from logbin import logbin
+from scipy.optimize import curve_fit
 
-datafolder = os.path.dirname(os.path.realpath(__file__)) + '/data/'
+datafolder = os.path.dirname(os.path.realpath(__file__)) + '/data/' + '1mil/'
 # load data
 Ls = [4, 8, 16, 32, 64, 128, 256]
-i_after_ss = 10**5
-repeatNs = np.zeros(len(Ls), dtype=int) + 10 #number of repeats for each L
+i_after_ss = 10**6 #number of iterations after steady state
+repeatNs = np.zeros(len(Ls), dtype=int) + 1 #number of repeats for each L
+show=False
 
 
 class osloAnalysis:
@@ -24,7 +27,8 @@ class osloAnalysis:
         self.datafolder = datafolder
         self.which = which
         self.repeatNs = np.array(repeatNs) #number of repeats for each L
-        self.colors = plt.cm.viridis(np.linspace(0, 1, len(self.Ls)*2))[::2] #get a color for each L from viridis
+        #color scale from viridis
+        self.colors = plt.cm.viridis(np.linspace(0, 1, len(self.Ls)))
         plt.rc('axes', prop_cycle=(plt.cycler('color', self.colors))) #change default color cycle
     
     def readData(self, L):
@@ -32,7 +36,7 @@ class osloAnalysis:
         
         #read in avalanches_X.csv and heights_X.csv from each run
         repeats = self.repeatNs[self.Ls==L][0]
-        steady_state = 2*L**2
+        steady_state = L*(L+1)
         iterations = steady_state + i_after_ss
         all_avalanches = np.zeros((repeats, i_after_ss))
         all_heights = np.zeros((repeats, iterations))
@@ -52,7 +56,7 @@ class osloAnalysis:
 
         return all_avalanches, all_heights, t_c_list
     
-    def plotAllAvalanches(self, show=False):
+    def plotAllAvalanches(self, show=False, cutoff=1000):
         '''barplot avalanche sizes vs time'''
         print('plotting avalanches')
         plt.figure(figsize=(10, 5))
@@ -60,7 +64,7 @@ class osloAnalysis:
             avalanches = self.readData(L)[0]
             first_aval = avalanches[0]
             print('L = ', L, 'mean = ', np.mean(first_aval), '+/-', np.std(first_aval))
-            first_aval = first_aval[:1000]
+            first_aval = first_aval[:cutoff]
             plt.bar(np.arange(len(first_aval)), first_aval, label='L='+str(L)) #plot first run only
         plt.xlabel('Time')
         plt.ylabel('Avalanche size')
@@ -71,6 +75,7 @@ class osloAnalysis:
             plt.show()
 
     def plotMeanHeights(self, runs='all', show=False, scale='linear'):
+        print('plotting mean heights')
         # plot heights vs time
         plt.figure(figsize=(10, 7))
         for l, L in enumerate(self.Ls):
@@ -108,8 +113,9 @@ class osloAnalysis:
     
     def log(self, x, a, b):
         return a * np.log(x) + b
-    
+
     def plot_t_cs(self, fit=True, show=False):
+        print('plotting t_c vs L')
         # plot t_c vs L
         plt.figure(figsize=(10, 7))
         avg_t_cs = np.zeros(len(self.Ls))
@@ -143,6 +149,7 @@ class osloAnalysis:
             plt.show()
 
     def collapseHeights(self, show=False, scale='linear'):
+        print('plotting heights data collapse')
         # plot heights vs time
         plt.figure(figsize=(10, 7))
         for l, L in enumerate(self.Ls):
@@ -166,6 +173,7 @@ class osloAnalysis:
             plt.show()
 
     def scalingCorrections(self, show=False, fit=True):
+        print('plotting scaling corrections')
         fig, ax = plt.subplots(1, 3, figsize=(15, 7))
         avg_heights = np.zeros(len(self.Ls))
         err_heights = np.zeros(len(self.Ls))
@@ -210,8 +218,6 @@ class osloAnalysis:
         ax[2].set_ylabel('Standard deviation')
         #ax[2].set_title('Standard deviation of height of pile over time for different L')
         ax[2].grid()
-
-
         ax[0].set_xlabel('Height')
         ax[0].set_ylabel('Probability')
         #ax[0].set_title('Probability distribution of heights')
@@ -228,16 +234,137 @@ class osloAnalysis:
         if show:
             plt.show()
 
-        
+    def heightProb(self, show=False):
+        print('plotting height probability')
+        plt.figure(figsize=(10, 7))
+        for l, L in enumerate(self.Ls):
+            avalanches, heights, t_cs = self.readData(L)
+            t_c = t_cs[0]
+            
+            heights_ss = heights[0][t_c:]
+            std = np.std(heights_ss)
+            heights_ss = ( heights_ss / L )
+            #scale by variance
+            heights_ss = (( heights_ss - np.mean(heights_ss) ) / std + 2)*100
+
+           
+            #plot a histogram
+            #plt.hist(heights_ss, bins=100, density=True, label='L='+str(L), alpha=1)
+            
+            #plot data as pdf
+            height_prob = np.bincount(heights_ss.astype(int))
+            height_prob = height_prob / np.sum(height_prob)
+
+            plt.plot(np.arange(len(height_prob)), height_prob, label='L='+str(L), alpha=0.8, linewidth=0.8)
 
             
+            
 
+            #plot a gaussian
+            #x = np.linspace(0, 2, 100)
+            #plt.plot(x, scipy.stats.norm.pdf(x, mean, std), label='L='+str(L), alpha=0.8, linewidth=0.8)
 
+            plt.xticks(np.arange(0, 2.1, 0.1))
+            #plt.xlim(-0.1, 0.1)
 
+        #plot standard deviation against L
+        
+
+        plt.xlabel('Height / L')
+        plt.ylabel('Probability')
+
+        plt.legend()
+        plt.savefig(self.datafolder+'heightprob.png', dpi=300)
+        if show:
+            plt.show()
+        
+    def avalancheProb(self, scale=1, show=False, step=1, skip=None, collapse=False):
+        print('plotting avalanche probability')
+        plt.figure(figsize=(10, 7))
+        D, tau = 2.25, 1.55
+        for l, L in enumerate(self.Ls[:None:step]):
+            print('L =', L)
+            
+            avalanches, heights, t_cs = self.readData(L)
+            #take all runs from their respective t_c
+            avalanches_ss = avalanches[:,t_cs[0]:]
+            avalanches_ss = avalanches_ss.flatten().astype(int)
+            
+            bincentres, bincounts = logbin(avalanches_ss, scale=scale)
+            if collapse:
+                bincounts = bincounts * (bincentres**tau)
+                bincentres = bincentres / (L**D)
+
+            
+            plt.plot(bincentres, bincounts, label='L='+str(L), alpha=0.9)
+
+        binning = 'log'
+        if scale == 1:
+            binning = 'linear'
+
+        plt.xscale('log')
+        plt.yscale('log')
+        plt.xlabel('$s/L^D$')
+        plt.ylabel('$s^{ \\tau_s}P(s;L)$')
+        #plt.xlim(0, 1000)
+        #plt.xticks(bincentres)
+        plt.legend()
+        fname = 'avalancheprob_'+binning+'.png'
+        if collapse:
+            fname = 'avalancheprob_'+binning+'_collapse.png'
+        plt.savefig(self.datafolder+fname, dpi=300)
+        if show:
+            plt.show()
+
+    def avalanche_moment_k(self, ks, show=False):
+        '''measure the kth moment of the avalanche distribution'''  
+        print('plotting avalanche moments')
+        moments = np.zeros((len(self.Ls), len(ks)))
+        for l, L in enumerate(self.Ls):
+            avalanches, heights, t_cs = self.readData(L)
+            t_c = t_cs[0]
+
+            #take first run from its t_c
+            avalanches_ss = avalanches[0][t_c:]
+            #flatten and convert to int
+            avalanches_ss = avalanches_ss.astype(int)
+            #take the kth moment
+            for k in ks:
+                moment = np.mean(avalanches_ss**k)
+                moments[l, k-1] = moment
+                print('L =', L, 'k =', k, 'moment =', moment)
+        
+        #plot the moments in one plot
+        fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+        log_moments = np.log(moments)
+        log_Ls = np.log(self.Ls)
+        
+        for k in ks:
+            #fit exp to the data
+            #k = 1 popt = [0.99976387 1.00006119]
+            #k = 2 popt = [0.28517019 3.21035064]
+            #k = 3 popt = [0.11549297 5.45150957]
+            #k = 4 popt = [0.09807589 7.56493738]
+            #fit linear to log-log data
+            popt, pcov = curve_fit(lambda x, a, b: a*x + b, log_Ls, log_moments[:,k-1])
+            print('k={:d}, a={:.2e} +/- {:.2e}, b={:.2e} +/- {:.2e}'.format(k, popt[0], np.sqrt(pcov[0,0]), popt[1], np.sqrt(pcov[1,1])))
+            ax.plot(log_Ls, log_moments[:,k-1], '.', label='k='+str(k), alpha=0.9, color=self.colors[k-1])
+            ax.plot(log_Ls, popt[0]*log_Ls + popt[1], alpha=0.9, linestyle='--', color=self.colors[k-1])
+        ax.set_xlabel('log(L)')
+        ax.set_ylabel('$log(\\langle s^k \\rangle)$')
+        
+        ax.legend()
+        plt.tight_layout()
+        plt.savefig(self.datafolder+'avalanchemoment.png', dpi=300)
+        if show:
+            plt.show()
 
 analyser = osloAnalysis()
-#analyser.plotAllAvalanches(show=False)
-#analyser.plotMeanHeights(runs='one', show=True, scale='loglog')
-#analyser.plot_t_cs(fit=True, show=True)
-#analyser.collapseHeights(show=True, scale='linear')
-analyser.scalingCorrections(show=True)
+analyser.plotAllAvalanches(show=show)
+analyser.plotMeanHeights(runs='one', show=show, scale='loglog')
+analyser.plot_t_cs(fit=True, show=show)
+analyser.collapseHeights(show=show, scale='linear')
+analyser.scalingCorrections(show=show)
+analyser.heightProb(show=show)
+analyser.avalancheProb(show=show, scale=1.25, step=1, skip=None, collapse=True)
+analyser.avalanche_moment_k(ks=[1,2,3,4], show=show)

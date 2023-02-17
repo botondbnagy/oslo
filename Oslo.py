@@ -17,7 +17,7 @@ class Oslo:
         self.L = L
         self.p = p
         self.i_after_ss = i_after_ss
-        self.steady_state = 2*L**2
+        self.steady_state = L*(L+1)
         self.iterations = self.steady_state + i_after_ss
         self.config = np.zeros(L, dtype=int)
         self.thresholds = np.array(thresholds)
@@ -171,9 +171,9 @@ class Oslo:
 
 if __name__ == '__main__':
     # run model for system sizes L
-    start, stop = 2, 2 #eg for [8, 16, ... 256] use 3, 8
-    repeats = 10 #number of times to repeat model for each system size
-    i_after_ss = 10**5 #number of iterations after definite steady state
+    start, stop = 8, 8 #eg for [8, 16, ... 256] use 3, 8
+    repeats = 1 #number of times to repeat model for each system size
+    i_after_ss = 10**7 #number of iterations after definite steady state
     L = np.logspace(start, stop, stop-start+1, base=2, dtype=int)
     print('Running model for system sizes: {}, each repeated {} times'.format(L, repeats))
     for l in L:
@@ -181,7 +181,7 @@ if __name__ == '__main__':
         model = Oslo(L=l, i_after_ss=i_after_ss, repeatN=repeatN, doAnimation=False)
         model.repeat()
 
-    
+
 
 
 
