@@ -24,6 +24,7 @@ class Oslo:
         self.z_th = self.randomThresholds()
         self.avalanches = np.zeros(self.iterations)
         self.heights = np.zeros(self.iterations)
+        #self.slopes = np.zeros((self.iterations, self.L))
         self.doAnimation = doAnimation
         self.t_c = 0
         self.t_c_reached = False
@@ -105,6 +106,8 @@ class Oslo:
         self.avalanches[i] = avalanche_size
         self.heights[i] = self.config[0] #height of first cell
 
+        #self.slopes[i] = self.getSlopes(self.L-1)
+
     def animate(self, i, s=0):
         # update animation
         self.ax.clear()
@@ -140,6 +143,7 @@ class Oslo:
         #get steady state values
         self.avalanches_ss = self.avalanches[self.t_c:]
         self.heights_ss = self.heights[self.t_c:]
+        #self.slopes_ss = self.slopes[self.t_c:]
         
         if self.doAnimation:
             self.anim = animation.FuncAnimation(self.fig, self.animate, frames=self.iterations, interval=1, repeat=False)
@@ -154,6 +158,7 @@ class Oslo:
         #save avalanche sizes (after steady state), heights for each iteration as csv
         np.savetxt(dir + 'avalanches_'+str(run_id)+'.csv', self.avalanches_ss, delimiter=',')
         np.savetxt(dir + 'heights_'+str(run_id)+'.csv', self.heights, delimiter=',')
+        #np.savetxt(dir + 'slopes_'+str(run_id)+'.csv', self.slopes, delimiter=',')
 
         if run_id == self.repeatN-1:
             #after last run save list of t_c values as csv
@@ -171,10 +176,11 @@ class Oslo:
 
 if __name__ == '__main__':
     # run model for system sizes L
-    start, stop = 8, 8 #eg for [8, 16, ... 256] use 3, 8
+    start, stop = 2, 8 #eg for [8, 16, ... 256] use 3, 8
     repeats = 1 #number of times to repeat model for each system size
-    i_after_ss = 10**7 #number of iterations after definite steady state
+    i_after_ss = 10**5 #number of iterations after definite steady state
     L = np.logspace(start, stop, stop-start+1, base=2, dtype=int)
+    L = [4,8,16]
     print('Running model for system sizes: {}, each repeated {} times'.format(L, repeats))
     for l in L:
         repeatN = repeats
